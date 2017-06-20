@@ -1,0 +1,127 @@
+---
+# An ansible playbook to enable LXC rootless containers.
+# Extra vars:
+#   username: name of the user that'll be granted the power to setup rootless containers
+#   uids: uids mapped to the user
+#   guids: guids mapped to the user
+-
+  hosts: all
+  vars:
+    network_interface: lxcbr0
+    network_interface_ip: 10.0.3.1
+    available_network_entries: 200
+    sample_container_name: rootless-playbook-example
+
+    check_username: "{{ username }}"
+
+    subuids: 100000-165535
+    subgids: 100000-165535
+
+
+  tasks:
+    - name: Install lxc-dev
+      apt:
+        name: lxc-dev
+        state: present
+        update-cache: yes
+
+    - name: Install uidmap
+      apt:
+        name: uidmap
+        state: present
+
+    - name: Install bridge-utils
+      apt:
+        name: bridge-utils
+        state: present
+
+    - name: Create user with the given username
+      user: name={{ username }} append=yes
+
+    - name: Assign the user subuids and subgids
+      shell: usermod {{ username }} --add-subuids {{ subuids }} --add-subgids {{ subgids }}
+
+    - name: Allow cgroup cloning
+      shell: cat /sys/fs/cgroup/cpuset/cgroup.clone_children && echo 1 > /sys/fs/cgroup/cpuset/cgroup.clone_children
+      register: command_result
+      changed_when: 'command_result.stdout != "1"'
+
+    - name: Allow unprivileged userns cloning
+      shell: cat /proc/sys/kernel/unprivileged_userns_clone && echo 1 > /proc/sys/kernel/unprivileged_userns_clone
+      register: command_result
+      changed_when: 'command_result.stdout != "1"'
+
+    - name: Create the network interface
+      shell: brctl addbr {{ network_interface }}
+      register: command_result
+      failed_when: 'command_result.rc != 0 and "already exists" not in command_result.stderr'
+      changed_when: '"already exists" not in command_result.stderr'
+
+    - name: Setup the network interface
+      shell: ifconfig {{ network_interface }} && ifconfig {{ network_interface }} {{ network_interface_ip }}
+      register: command_result
+      changed_when: 'network_interface_ip not in command_result.stdout'
+
+    - name: Enable IP forwarding
+      shell: cat /proc/sys/net/ipv4/ip_forward && echo 1 > /proc/sys/net/ipv4/ip_forward
+      register: command_result
+      changed_when: 'command_result.stdout != "1"'
+
+    - name: Add network entries to the user
+      lineinfile:
+        path: /etc/lxc/lxc-usernet
+        regexp: "^{{ username }} "
+        line: "{{ username }} veth {{ network_interface }} {{ available_network_entries }}"
+
+    - name: Set default network configuration
+      template:
+        src: templates/etc_lxc_default_conf.template
+        dest: /etc/lxc/default.conf
+        force: yes
+
+    - name: Set sample network configuration
+      template:
+        src: templates/etc_default_lxc_net.template
+        dest: /etc/default/lxc-net
+        force: yes
+
+    - name: Create user lxc configuration directory
+      file: path=/home/{{ username }}/.config/lxc/ state=directory
+
+    - name: Set user default configuration
+      template:
+        src: templates/config_lxc_default_conf.template
+        dest: /home/{{ username }}/.config/lxc/default.conf
+        force: yes
+
+    - name: Set user default configuration owner
+      file:
+        path: /home/{{ username }}/.config/lxc/default.conf
+        owner: "{{ username }}"
+        group: "{{ username }}"
+
+    # Test that containers can really be used
+    - name: Create a sample alpine container
+      become_user: "{{ username }}"
+      become: true
+      shell: lxc-create -n {{ sample_container_name }} -t download -- -d alpine -r edge -a amd64
+
+    - name: Start the container
+      become_user: "{{ username }}"
+      become: true
+      shell: lxc-start -n {{ sample_container_name }}
+
+    - name: Launch the true command
+      become_user: "{{ username }}"
+      become: true
+      shell: lxc-attach -n {{ sample_container_name }} /bin/true
+
+    - name: Stop the container
+      become_user: "{{ username }}"
+      become: true
+      shell: lxc-stop -n {{ sample_container_name }}
+
+    - name: Destroy the container
+      become_user: "{{ username }}"
+      become: true
+      shell: lxc-destroy -n {{ sample_container_name }}

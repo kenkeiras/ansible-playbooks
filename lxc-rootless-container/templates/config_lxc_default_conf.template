@@ -1,0 +1,6 @@
+lxc.network.type = veth
+lxc.network.link = {{ network_interface }}
+lxc.network.flags = up
+lxc.network.hwaddr = 00:16:3e:xx:xx:xx
+lxc.id_map = u 0 {{ subuids.split('-')[0] }} {{ (subuids.split('-')[1]|int) - (subuids.split('-')[0]|int) }}
+lxc.id_map = g 0 {{ subgids.split('-')[0] }} {{ (subgids.split('-')[1]|int) - (subgids.split('-')[0]|int) }}

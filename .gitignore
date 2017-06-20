@@ -1,0 +1,7 @@
+hosts
+*.retry
+
+*#*
+*.bak
+*.swp
+*~
