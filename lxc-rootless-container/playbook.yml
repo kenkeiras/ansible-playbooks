@@ -100,6 +100,22 @@
         owner: "{{ username }}"
         group: "{{ username }}"
 
+    # Set visibilities
+    - name: Set visibility of home
+      file:
+        path: /home/{{ username }}/
+        mode: "u+x"
+
+    - name: Set visibility of user config
+      file:
+        path: /home/{{ username }}/.config
+        mode: "u+x"
+
+    - name: Set visibility of user lxc config
+      file:
+        path: /home/{{ username }}/.config/lxc
+        mode: "u+x"
+
     # Test that containers can really be used
     - name: Create a sample alpine container
       become_user: "{{ username }}"
